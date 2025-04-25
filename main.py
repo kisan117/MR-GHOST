@@ -1,66 +1,45 @@
-import time
-import random
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.options import Options
+from flask import Flask, request, render_template, jsonify
+import requests
 
-# CONFIG
-EMAIL = "your_email@example.com"
-PASSWORD = "your_password"
-HEADLESS = False
-COMMENT_LIST = [
-    "Great post!", "Awesome!", "Loved this!", "Interesting perspective!", "Thanks for sharing!"
-]
-POST_FILE = "post_urls.txt"
-WAIT_TIME_RANGE = (5, 10)  # random wait between actions
+app = Flask(__name__)
 
-def get_post_urls(filename):
-    with open(filename, "r") as file:
-        return [line.strip() for line in file if line.strip()]
+# Function to post a single comment using Graph API
+def post_page_comment(post_id, comment_text, page_access_token):
+    url = f"https://graph.facebook.com/{post_id}/comments"
+    params = {
+        "message": comment_text,
+        "access_token": page_access_token
+    }
+    response = requests.post(url, params=params)
 
-def init_browser(headless=False):
-    options = Options()
-    if headless:
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920,1080")
-    return webdriver.Chrome(options=options)
+    if response.status_code == 200:
+        return f"Comment '{comment_text}' posted successfully."
+    else:
+        return f"Failed: {response.json()}"
 
-def login(driver, email, password):
-    driver.get("https://www.facebook.com")
-    time.sleep(random.randint(*WAIT_TIME_RANGE))
-    driver.find_element(By.ID, "email").send_keys(email)
-    driver.find_element(By.ID, "pass").send_keys(password)
-    driver.find_element(By.NAME, "login").click()
-    time.sleep(random.randint(*WAIT_TIME_RANGE))
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
 
-def comment_on_post(driver, url, comment_text):
-    try:
-        driver.get(url)
-        time.sleep(random.randint(*WAIT_TIME_RANGE))
-        comment_box = driver.find_element(By.XPATH, "//div[@aria-label='Write a comment']")
-        comment_box.click()
-        time.sleep(1)
-        comment_box.send_keys(comment_text)
-        time.sleep(1)
-        comment_box.send_keys(Keys.RETURN)
-        print(f"[+] Comment posted on: {url}")
-    except Exception as e:
-        print(f"[!] Failed to comment on: {url}
-    {e}")
+@app.route("/submit", methods=["POST"])
+def submit():
+    post_id = request.form.get("post_id")
+    comments = request.form.get("comments")
+    token = request.form.get("token")
 
-def main():
-    driver = init_browser(HEADLESS)
-    login(driver, EMAIL, PASSWORD)
-    post_urls = get_post_urls(POST_FILE)
+    if not post_id or not comments or not token:
+        return render_template("index.html", result="Missing data. Please fill in all fields.")
 
-    for url in post_urls:
-        comment = random.choice(COMMENT_LIST)
-        comment_on_post(driver, url, comment)
-        time.sleep(random.randint(*WAIT_TIME_RANGE))
+    # Split the comments by newline and remove any extra spaces
+    comment_list = [comment.strip() for comment in comments.split("\n") if comment.strip()]
 
-    driver.quit()
+    results = []
+    for comment in comment_list:
+        result = post_page_comment(post_id, comment, token)
+        results.append(result)
+
+    # Combine all results into a single response
+    return render_template("index.html", result="<br>".join(results))
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True)
